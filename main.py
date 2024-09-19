@@ -46,27 +46,31 @@ def authenticate():
     ```
     """
 
-    play_token = request.json["play_token"]
-    if play_token in list_of_play_tokens:
-        pass
-    elif not play_token or type(play_token) != str:
-        return jsonify({"error": "play_token is not valid"}), 401
-    else:
-        return jsonify({"error": "play_token is not valid"}), 400
+    try:
+        play_token = request.json["play_token"]
+        if play_token in list_of_play_tokens:
+            pass
+        elif not play_token or type(play_token) != str:
+            return jsonify({"error": "play_token is not valid"}), 401
+        else:
+            return jsonify({"error": "play_token is not valid"}), 400
 
-    current_time = time()
-    encoded_jwt = jwt.encode(
-        payload={
-            "exp": int(current_time + EXTRA_TIME_TO_LIVE)  # ,
-            # "nbf": int(current_time),
-            # "iss": request.remote_addr,
-            # "aud":
-        },
-        key=SECRET_JWT_KEY,
-        algorithm="HS256"
-    )
+        current_time = time()
+        encoded_jwt = jwt.encode(
+            payload={
+                "nbf": int(current_time),
+                "exp": int(current_time + EXTRA_TIME_TO_LIVE)
+            },
+            key=SECRET_JWT_KEY,
+            algorithm="HS256"
+        )
 
-    return jsonify({"token": encoded_jwt}), 200
+    except Exception as e:
+        print(e)
+        return 500
+
+    finally:
+        return jsonify({"token": encoded_jwt}), 200
 
 
 @app.route("/telemetry", methods=["POST"])
@@ -79,7 +83,7 @@ def telemetry():
     x-api-key: YOUR_API_KEY
     Authorization: YOUR_JWT_TOKEN
     ```
-    
+
     PAYLOAD:
     ```
     {
@@ -89,10 +93,29 @@ def telemetry():
     """
 
     encoded_jwt = request.headers.get("Authorization").split()[1]
-    decoded_jwt = jwt.decode(
-        jwt=encoded_jwt, key=SECRET_JWT_KEY, algorithms=["HS256"])
+    if encoded_jwt.count(".") == 2:
+        pass
+    elif not encoded_jwt or type(encoded_jwt) != str:
+        return jsonify({"error": "authorization header is not valid"}), 401
+    else:
+        return jsonify({"error": "authorization header is not valid"}), 400
 
-    print(encoded_jwt, decoded_jwt)
+    try:
+        decoded_jwt = jwt.decode(
+            jwt=encoded_jwt,
+            key=SECRET_JWT_KEY,
+            algorithms=["HS256"],
+            options={
+                "verify_signature": True,
+                "require": ["exp"],
+                "verify_exp": True
+            }
+        )
+        print(decoded_jwt)
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "failed to decode JWT"}), 400
+    except jwt.DecodeError:
+        return jsonify({"error": "failed to decode JWT"}), 500
 
     # TEMPORARY, will replace with functions to update database
     print("lalala i am updating the database with this data =", request.json["telemetry_data"])

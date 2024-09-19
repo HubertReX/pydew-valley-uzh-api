@@ -12,6 +12,7 @@ resp = requests.post(
 
 print(resp.url, resp.status_code, resp.json())
 token = resp.json()["token"]
+# token = resp.json()["token"]+"123132" # to test out server response to an invalid token
 
 #####################################################################
 
