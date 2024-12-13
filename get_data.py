@@ -6,6 +6,7 @@ list_of_api_keys = [
 ]
 
 list_of_play_tokens = [
-    "321",
-    "654"
+    0,
+    999
 ]
+list_of_play_tokens.extend(range(100, 850))

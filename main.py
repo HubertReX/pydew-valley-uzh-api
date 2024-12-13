@@ -1,35 +1,74 @@
-from flask import Flask, request, jsonify
+
+# import logging
+import sys
+from loguru import logger
+from flask import Flask, Response, request, jsonify
 from secrets import token_hex
 import jwt
 from time import time
 from get_data import list_of_api_keys, list_of_play_tokens
 
-app = Flask(__name__)
-
-SECRET_JWT_KEY = token_hex(16) # will replace with a repo secret
+SECRET_JWT_KEY = token_hex(16)  # will replace with a repo secret
 EXTRA_TIME_TO_LIVE = 86400
+
+HOST = "localhost"
+PORT = 5000
+
+CONSOLE_DEBUG_LEVEL = "INFO"
+FILE_DEBUG_LEVEL = "INFO"
+
+
+# remove default handlers and add custom ones
+logger.remove()
+logger.add(
+    # sys.stdout,
+    sys.stderr,
+    colorize=True,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    # "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <level>{message}</level>",
+    "<cyan>{function:>20}</cyan>:<cyan>{line:<4}</cyan> | <level>{message}</level>",
+    level=CONSOLE_DEBUG_LEVEL,
+)
+
+# logger.add("sever_{time}.log", level="DEBUG", rotation="500 MB")  # , compression="zip", backtrace=True, diagnose=True
+logger.add(
+    "server.log",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | "
+    # "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <level>{message}</level>",
+    "<cyan>{function:>20}</cyan>:<cyan>{line:<4}</cyan> | <level>{message}</level>",
+    level=FILE_DEBUG_LEVEL
+)  # , compression="zip", backtrace=True, diagnose=True
+
+app = Flask(__name__)
 
 
 @app.before_request
-def details():
+def before_request():
     api_key = request.headers.get("x-api-key")
     if api_key in list_of_api_keys:
         pass
-    elif not api_key or type(api_key) != str:
+    elif not api_key or type(api_key) is str:
+        logger.error(f"x-api-key header is not valid: {({"api_key": api_key})}")
         return jsonify({"error": "x-api-key header is not valid"}), 401
     else:
+        logger.error(f"x-api-key header is not valid: {({"api_key": api_key})}")
         return jsonify({"error": "x-api-key header is not valid"}), 400
 
-    print(request.headers, request.json)
+    logger.info("got valid header")
+    logger.debug({"headers": request.headers, "json": request.json})
+
+    # print(request.headers, request.json)
 
 
 @app.route("/")
 def home():
+    logger.info("got root API call")
+
     return jsonify({"message": "API for Clear Skies"}), 200
 
 
 @app.route("/authn", methods=["POST"])
-def authenticate():
+def authenticate() -> tuple[Response, int]:
     """
     Trade a play token for a JWT token to interact with backend API
 
@@ -47,12 +86,23 @@ def authenticate():
     """
 
     try:
-        play_token = request.json["play_token"]
-        if play_token in list_of_play_tokens:
+        play_token_int: int = -1
+        encoded_jwt: str = ""
+
+        play_token = request.json["play_token"]  # type:ignore[index]
+
+        try:
+            play_token_int = int(play_token)
+        except ValueError:
+            logger.error(f"play_token is not valid: {({"play_token": play_token})}")
+
+        if play_token_int in list_of_play_tokens:
             pass
-        elif not play_token or type(play_token) != str:
+        elif not play_token or type(play_token) is str:
+            logger.error(f"play_token is not valid: {({"play_token": play_token})}")
             return jsonify({"error": "play_token is not valid"}), 401
         else:
+            logger.error(f"play_token is not valid: {({"play_token": play_token})}")
             return jsonify({"error": "play_token is not valid"}), 400
 
         current_time = time()
@@ -66,11 +116,14 @@ def authenticate():
         )
 
     except Exception as e:
-        print(e)
-        return 500
+        logger.error(f"unhandled exception: {e}")
+        return jsonify({"error": "internal server error"}), 500
 
     finally:
-        return jsonify({"token": encoded_jwt}), 200
+        if encoded_jwt:
+            logger.info("authentication success")
+            logger.debug({"encoded_jwt": encoded_jwt})
+        return jsonify({"jwt": encoded_jwt}), 200
 
 
 @app.route("/telemetry", methods=["POST"])
@@ -95,9 +148,11 @@ def telemetry():
     encoded_jwt = request.headers.get("Authorization").split()[1]
     if encoded_jwt.count(".") == 2:
         pass
-    elif not encoded_jwt or type(encoded_jwt) != str:
-        return jsonify({"error": "authorization header is not valid"}), 401
+    elif not encoded_jwt or type(encoded_jwt) is str:
+        logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
+        return ({"error": "authorization header is not valid"}), 401
     else:
+        logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
         return jsonify({"error": "authorization header is not valid"}), 400
 
     try:
@@ -111,17 +166,22 @@ def telemetry():
                 "verify_exp": True
             }
         )
-        print(decoded_jwt)
+        logger.info("decode JWT success")
+        logger.debug({"decoded_jwt": decoded_jwt})
+        # print(decoded_jwt)
     except jwt.InvalidTokenError:
+        logger.error(f"failed to decode JWT: {({"encoded_jwt": encoded_jwt})}")
         return jsonify({"error": "failed to decode JWT"}), 400
     except jwt.DecodeError:
+        logger.error(f"failed to decode JWT: {({"encoded_jwt": encoded_jwt})}")
         return jsonify({"error": "failed to decode JWT"}), 500
 
     # TEMPORARY, will replace with functions to update database
-    print("lalala i am updating the database with this data =", request.json["telemetry_data"])
+    logger.info("got telemetry data")
+    logger.debug(request.json["telemetry_data"])
 
     return jsonify({"message": "telemetry data received"}), 200
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host=HOST, port=PORT, debug=True)
