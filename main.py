@@ -10,12 +10,13 @@ from get_data import list_of_api_keys, list_of_play_tokens
 
 SECRET_JWT_KEY = token_hex(16)  # will replace with a repo secret
 EXTRA_TIME_TO_LIVE = 86400
+DEBUG_MODE_VERSION = 0
 
 HOST = "localhost"
 PORT = 5000
 
-CONSOLE_DEBUG_LEVEL = "INFO"
-FILE_DEBUG_LEVEL = "INFO"
+CONSOLE_DEBUG_LEVEL = "DEBUG"
+FILE_DEBUG_LEVEL = "DEBUG"
 
 
 # remove default handlers and add custom ones
@@ -55,7 +56,12 @@ def before_request():
         return jsonify({"error": "x-api-key header is not valid"}), 400
 
     logger.info("got valid header")
-    logger.debug({"headers": request.headers, "json": request.json})
+    try:
+        req_json = request.json
+    except:  # noqa E722
+        req_json = {}
+
+    logger.debug({"headers": request.headers, "json": req_json})
 
     # print(request.headers, request.json)
 
@@ -88,6 +94,7 @@ def authenticate() -> tuple[Response, int]:
     try:
         play_token_int: int = -1
         encoded_jwt: str = ""
+        game_version: int = -1
 
         play_token = request.json["play_token"]  # type:ignore[index]
 
@@ -97,7 +104,14 @@ def authenticate() -> tuple[Response, int]:
             logger.error(f"play_token is not valid: {({"play_token": play_token})}")
 
         if play_token_int in list_of_play_tokens:
-            pass
+            if play_token_int in range(100, 350):
+                game_version = 1
+            elif play_token_int in range(350, 600):
+                game_version = 2
+            elif play_token_int in range(600, 850):
+                game_version = 3
+            elif play_token_int in [0, 999]:
+                game_version = DEBUG_MODE_VERSION
         elif not play_token or type(play_token) is str:
             logger.error(f"play_token is not valid: {({"play_token": play_token})}")
             return jsonify({"error": "play_token is not valid"}), 401
@@ -122,8 +136,8 @@ def authenticate() -> tuple[Response, int]:
     finally:
         if encoded_jwt:
             logger.info("authentication success")
-            logger.debug({"encoded_jwt": encoded_jwt})
-        return jsonify({"jwt": encoded_jwt}), 200
+            logger.debug({"encoded_jwt": encoded_jwt, "game_version": game_version})
+        return jsonify({"jwt": encoded_jwt, "game_version": game_version}), 200
 
 
 @app.route("/telemetry", methods=["POST"])
@@ -145,17 +159,22 @@ def telemetry():
     ```
     """
 
-    encoded_jwt = request.headers.get("Authorization").split()[1]
-    if encoded_jwt.count(".") == 2:
-        pass
-    elif not encoded_jwt or type(encoded_jwt) is str:
-        logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
-        return ({"error": "authorization header is not valid"}), 401
-    else:
-        logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
-        return jsonify({"error": "authorization header is not valid"}), 400
-
     try:
+        authorization = request.headers.get("Authorization", "Bearer X")
+        authorization_parts = authorization.split()
+        if len(authorization_parts) > 1:
+            encoded_jwt = authorization_parts[1]
+        else:
+            encoded_jwt = ""
+        if encoded_jwt.count(".") == 2:
+            pass
+        elif not encoded_jwt or type(encoded_jwt) is str:
+            logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
+            return ({"error": "authorization header is not valid"}), 401
+        else:
+            logger.error(f"authorization header is not valid: {({"encoded_jwt": encoded_jwt})}")
+            return jsonify({"error": "authorization header is not valid"}), 400
+
         decoded_jwt = jwt.decode(
             jwt=encoded_jwt,
             key=SECRET_JWT_KEY,
